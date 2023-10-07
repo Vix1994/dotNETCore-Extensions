@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -7,6 +7,7 @@ using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Pomelo.AspNetCore.TimedJob.Jobs;
+using System.Collections.Concurrent;
 
 namespace Pomelo.AspNetCore.TimedJob
 {
@@ -20,9 +21,9 @@ namespace Pomelo.AspNetCore.TimedJob
 
         private ILogger logger { get; set; }
 
-        public Dictionary<string, bool> JobStatus { get; private set; } = new Dictionary<string, bool>();
+        public ConcurrentDictionary<string, bool> JobStatus { get; private set; } = new ConcurrentDictionary<string, bool>();
 
-        public Dictionary<string, Timer> JobTimers { get; private set; } = new Dictionary<string, Timer>();
+        public ConcurrentDictionary<string, Timer> JobTimers { get; private set; } = new ConcurrentDictionary<string, Timer>();
 
         private List<TypeInfo> JobTypeCollection { get; set; } = new List<TypeInfo>();
 
@@ -55,7 +56,7 @@ namespace Pomelo.AspNetCore.TimedJob
                 {
                     if (y.GetCustomAttribute<NonJobAttribute>() == null)
                     {
-                        JobStatus.Add(x.FullName + '.' + y.Name, false);
+                        JobStatus.TryAdd(x.FullName + '.' + y.Name, false);
                         var invoke = y.GetCustomAttribute<InvokeAttribute>();
                         if (invoke != null && invoke.IsEnabled)
                         {
@@ -84,7 +85,8 @@ namespace Pomelo.AspNetCore.TimedJob
                                 var timer = new Timer(t => {
                                     Execute(x.FullName + '.' + y.Name);
                                 }, null, Convert.ToInt32(delta), invoke.Interval);
-                                JobTimers.Add(x.FullName + '.' + y.Name, timer);
+
+                                JobTimers.TryAdd(x.FullName + '.' + y.Name, timer);
                             });
                         }
                     }
@@ -102,8 +104,8 @@ namespace Pomelo.AspNetCore.TimedJob
                 {
                     JobTimers[x.Id].Dispose();
                     JobStatus[x.Id] = false;
-                    JobTimers.Remove(x.Id);
-                    JobStatus.Remove(x.Id);
+                    JobTimers.TryRemove(x.Id, out _);
+                    JobStatus.TryRemove(x.Id, out _);
                 }
                 long delta = Convert.ToInt64((x.Begin - DateTime.Now).TotalMilliseconds);
                 if (delta < 0)
@@ -124,7 +126,7 @@ namespace Pomelo.AspNetCore.TimedJob
                    var timer = new Timer(t => {
                         Execute(x.Id);
                     }, null, Convert.ToInt32(delta), x.Interval);
-                    JobTimers.Add(x.Id, timer);
+                    JobTimers.TryAdd(x.Id, timer);
                 });
             }
         }
@@ -138,8 +140,8 @@ namespace Pomelo.AspNetCore.TimedJob
                 {
                     JobTimers[x.Id].Dispose();
                     JobStatus[x.Id] = false;
-                    JobTimers.Remove(x.Id);
-                    JobStatus.Remove(x.Id);
+                    JobTimers.TryRemove(x.Id, out _);
+                    JobStatus.TryRemove(x.Id, out _);
                 }
             }
             StartDynamicTimers();
